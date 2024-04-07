@@ -1,0 +1,495 @@
+---
+title: "Biostat650_project_code"
+author: "Tommy Tang"
+date: "2023-12-08"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(NHANES)
+library(dplyr)
+library(car)
+library(tidyverse)
+library(gtsummary)
+library(corrplot)
+library(knitr)
+library(forcats)
+library(ggplot2)
+library(pspearman)
+library(psych)
+library(olsrr)
+library(ggrepel)
+data("NHANES")
+```
+\section{Statistical Analysis}
+```{r}
+var1=c("SleepHrsNight","Age","Gender","BMI","Race1","Education","HHIncomeMid","Work","BPSysAve","BPDiaAve","DaysPhysHlthBad","DaysMentHlthBad","Depressed","SleepTrouble","PhysActive","TVHrsDay","CompHrsDay","AlcoholDay","AlcoholYear","Smoke100","Marijuana","HardDrugs")
+mydata1 = NHANES %>% select(all_of(var1))
+mydata1 = mydata1 %>% 
+  mutate(BPIssue= case_when(
+      BPSysAve >= 90 & BPSysAve <= 120 & BPDiaAve >= 60 & BPDiaAve <= 80 ~ 'No',
+      TRUE ~ 'Yes'
+))
+
+mydata1 = mydata1 %>% mutate(complete=complete.cases(mydata1)) %>% mutate(Incomplete=ifelse(complete==0,"Incomplete","Complete")) %>% select(!complete)
+
+```
+
+
+Table 1 Baseline information by the completeness of the dataset
+```{r}
+mydata1 %>% tbl_summary(by = Incomplete, missing = "no",
+
+              statistic = list(all_continuous() ~ "{mean} ({sd})",
+                               all_categorical() ~ "{n} ({p}%)"),
+              type = all_continuous() ~ "continuous2",
+              digits = all_continuous() ~ c(2, 2)
+              ) %>% add_n %>% 
+  add_p(test = list(SleepHrsNight ~ "t.test",
+                    Age ~ "t.test",
+                    Gender ~ "chisq.test",
+                    BMI ~ "t.test",
+                    AlcoholDay ~ "t.test", 
+                    AlcoholYear ~ "t.test",
+                    HHIncomeMid ~ "t.test",
+                    Work ~ "chisq.test",
+                    CompHrsDay ~ "chisq.test",
+                    Smoke100 ~ "chisq.test",
+                    Marijuana ~ "chisq.test",
+                    HardDrugs ~ "chisq.test",
+                    DaysMentHlthBad ~ "t.test",
+                    BPSysAve ~ "t.test",
+                    BPDiaAve ~ "t.test",
+                    BPIssue ~ "chisq.test",
+                    Depressed ~ "chisq.test",
+                    PhysActive ~ "chisq.test",
+                    TVHrsDay ~ "chisq.test",
+                    DaysPhysHlthBad ~ "t.test",
+                    DaysMentHlthBad ~ "t.test",
+                    SleepTrouble ~ "chisq.test"
+                    ),
+        test.args = all_tests("t.test") ~ list(var.equal = TRUE)
+        ) %>% bold_p(t =0.05) %>% bold_labels %>%
+  modify_caption("Table 1. Baseline information By the completeness of the dataset ")
+```
+
+Table 2. baseline information By Gender:
+```{r}
+mydata1 %>% tbl_summary(by = Gender, missing = "no",
+              statistic = list(all_continuous() ~ "{mean} ({sd})",
+                               all_categorical() ~ "{n} ({p}%)"),
+              type = all_continuous() ~ "continuous2",
+              digits = all_continuous() ~ c(2, 2)
+              ) %>% add_n %>% 
+  add_p(test = list(SleepHrsNight ~ "t.test",
+                    CompHrsDay ~ "chisq.test",
+                    Age ~ "t.test",
+                    BMI ~ "t.test",
+                    AlcoholDay ~ "t.test", 
+                    AlcoholYear ~ "t.test",
+                    HHIncomeMid ~ "t.test",
+                    Work ~ "chisq.test",
+                    Smoke100 ~ "chisq.test",
+                    Marijuana ~ "chisq.test",
+                    HardDrugs ~ "chisq.test",
+                    DaysMentHlthBad ~ "t.test",
+                    BPSysAve ~ "t.test",
+                    BPDiaAve ~ "t.test",
+                    BPIssue ~ "chisq.test",
+                    Depressed ~ "chisq.test",
+                    PhysActive ~ "chisq.test",
+                    TVHrsDay ~ "chisq.test",
+                    DaysPhysHlthBad ~ "t.test",
+                    DaysMentHlthBad ~ "t.test",
+                    SleepTrouble ~ "chisq.test"
+                    ),
+        test.args = all_tests("t.test") ~ list(var.equal = TRUE)
+        ) %>% bold_p(t =0.05) %>% bold_labels %>%
+  modify_caption("Table 2. Baseline information By Gender")
+
+```
+
+
+Table 3. Demographic information groupby CompHrsDay:
+```{r message=FALSE, warning=FALSE}
+mydata1%>%
+  tbl_summary(by = CompHrsDay, missing = "no",
+              statistic = list(all_continuous() ~ "{mean} ({sd})",
+                               all_categorical() ~ "{n} ({p}%)"),
+              ) %>% add_n %>% 
+  add_p(test = list(Gender ~ "chisq.test"
+                    ),
+        test.args = all_tests("t.test") ~ list(var.equal = TRUE)
+        ) %>% bold_p(t =0.05) %>% bold_labels  %>%
+  modify_caption("Table 3. Demographic information comparing groupby CompHrsDay")
+
+```
+
+Complete data
+```{r}
+completedata1 = mydata1 %>% filter(Incomplete=="Complete") %>% select(-Incomplete)
+
+completedata1 = completedata1 %>% mutate(Age_c = Age - mean(Age)) %>% mutate(BMI_c = BMI - mean(BMI)) %>%   mutate(Edu = case_when(
+  Education == "8th Grade" ~ "8th Grade",
+  Education == "High School" ~ "High School",
+  Education == "Some College" ~ "Some College",
+  Education == "College Grad" ~ "College Grad",
+  Education == "9 - 11th Grade" ~ "9_11th Grade",
+)) 
+
+```
+
+
+```{r}
+# explore CompHrsDay v.s. SleepHrsNight
+completedata1 %>% group_by(CompHrsDay) %>% summarise(meanSleep = mean(SleepHrsNight))
+
+summary(completedata1[, c("SleepHrsNight", "CompHrsDay")])
+prop.table(table(completedata1$CompHrsDay))
+hist(completedata1$SleepHrsNight, main = "Histogram of SleepHrsNight", xlab = "SleepHrsNight")
+
+boxplot(SleepHrsNight ~ CompHrsDay, data = completedata1, main = "Boxplot of SleepHrsNight by CompHrsDay", xlab = "CompHrsDay", ylab = "SleepHrsNight")
+
+# missing values proportion
+missing_data <- sapply(NHANES[var1], function(x) sum(is.na(x)))
+total_obs <- nrow(NHANES)
+missing_proportion <- missing_data / total_obs
+
+missing_df <- data.frame(Variable = names(missing_proportion), Proportion = missing_proportion)
+
+ggplot(missing_df, aes(x = Variable, y = Proportion)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylab("Proportion of Missing Values") +
+  xlab("Variable")
+
+```
+
+Normality
+```{r}
+shapiro.test(completedata1$SleepHrsNight)
+
+qqnorm(completedata1$SleepHrsNight, main = "Q-Q plot of SleepHrsNight")
+qqline(completedata1$SleepHrsNight)
+
+```
+\section{General Modelling}
+```{r eval=FALSE, include=FALSE}
+# ID 71799 has different PhysActiveDays
+check71799 = NHANES %>% filter(ID == 71799)
+check71799
+
+check71799r = NHANESraw %>% filter(ID == 71799)
+check71799r
+
+check69450 = NHANES %>% filter(ID == 69450)
+check69450
+
+check69450r = NHANESraw %>% filter(ID == 69450)
+check69450r
+
+check71915 = NHANES %>% filter(ID == 71915)
+check71915
+
+check71915r = NHANESraw %>% filter(ID == 71915)
+check71915r
+
+check70579 = NHANES %>% filter(ID == 70579)
+check70579
+
+check70787 = NHANES %>% filter(ID == 70787)
+check70787
+
+check69523 = NHANES %>% filter(ID == 69523)
+check69523
+# 
+```
+
+```{r eval=FALSE, include=FALSE}
+myCheck <- NHANES %>%
+  group_by(ID) %>%
+  summarise(across(everything(), n_distinct, .names = 'distinct_{.col}')) %>%
+  filter_if(is.numeric, any_vars(. > 1))
+
+
+inconsistentIDs <- myCheck %>%
+  filter(rowSums(.[-1] > 1) > 0) %>%
+  pull(ID)
+
+# Print the IDs 
+print(inconsistentIDs)
+```
+
+```{r eval=FALSE, include=FALSE}
+#remove PhysActiveDays
+NHANES_rmPhy = NHANES %>% select(-PhysActiveDays)
+
+myCheck2 <- NHANES_rmPhy %>%
+  group_by(ID) %>%
+  summarise(across(everything(), n_distinct, .names = 'distinct_{.col}')) %>%
+  filter_if(is.numeric, any_vars(. > 1))
+
+inconsistentIDs2 <- myCheck2 %>%
+  filter(rowSums(.[-1] > 1) > 0) %>%
+  pull(ID)
+
+# Print the IDs 
+print(inconsistentIDs2)
+
+```
+```{r warning=FALSE}
+var1=c('Gender', 'Age', 'Race1', 'Education', 'HHIncomeMid', 'Work', 'BMI',
+          'BPSysAve','BPDiaAve','DaysPhysHlthBad', 'DaysMentHlthBad',
+          'Depressed','SleepTrouble','PhysActive','TVHrsDay','AlcoholDay','AlcoholYear',
+          'Smoke100','Marijuana','HardDrugs')
+x = "CompHrsDay"
+y = "SleepHrsNight"
+mydata1 = NHANES %>% select(all_of(c(var1,x,y,"SurveyYr","ID")))
+mydata1 = mydata1 %>% mutate(complete=complete.cases(mydata1)) %>% mutate(Incomplete=ifelse(complete==0,"Incomplete","Complete")) %>% select(!complete)
+```
+
+
+
+```{r}
+# filter complete data
+completedata1 = mydata1 %>% filter(Incomplete=="Complete") %>% select(-Incomplete)
+table(completedata1$SurveyYr)
+length(unique(completedata1$ID))
+
+# prepare other covariates
+completedata1 = completedata1 %>% 
+  mutate(Age_c = Age - mean(Age)) %>%
+  mutate(BMI_c = BMI - mean(BMI)) %>% 
+  mutate(Edu = case_when(
+  Education == "8th Grade" ~ "8th Grade",
+  Education == "High School" ~ "High School",
+  Education == "Some College" ~ "Some College",
+  Education == "College Grad" ~ "College Grad",
+  Education == "9 - 11th Grade" ~ "9_11th Grade",
+)) %>% 
+  mutate(BPIssue= case_when(
+      BPSysAve >= 90 & BPSysAve <= 120 & BPDiaAve >= 60 & BPDiaAve <= 80 ~ 'No',
+      TRUE ~ 'Yes'
+))
+
+completedata1 = completedata1 %>% 
+                  group_by(across(everything())) %>%
+                  mutate(weights = n()) %>%
+                  ungroup()
+
+completedata1_unique = completedata1 %>% 
+  distinct(across(everything()), .keep_all = TRUE)
+```
+
+```{r eval=FALSE, include=FALSE}
+# perform a Shapiro-Wilk test on SleepHrsNight, compares the sample distribution to a normal distribution
+# If the p-value of the test is greater than 0.05, then the data is assumed to be normally distributed
+shapiro.test(completedata1$SleepHrsNight)
+# p<0.05, violating normality assumption
+
+# To create a Q-Q plot for SleepHrsNight
+qqnorm(completedata1$SleepHrsNight, main = "Q-Q plot of SleepHrsNight")
+qqline(completedata1$SleepHrsNight)
+
+# it is OK that SleepHrsNight itself is not normal
+```
+
+
+```{r}
+completedata1_unique %>% group_by(CompHrsDay) %>% summarise(meanSleep = mean(SleepHrsNight))
+
+boxplot(SleepHrsNight ~ CompHrsDay, data = completedata1_unique, main = "Boxplot of SleepHrsNight by CompHrsDay", xlab = "CompHrsDay", ylab = "SleepHrsNight")
+
+#CompHrsDay
+sl1 = lm(formula = SleepHrsNight ~ CompHrsDay, data = completedata1_unique, weights = weights)
+summary(sl1)
+
+#HHIncomeMid
+#sl2 = lm(formula = SleepHrsNight ~ HHIncomeMid, data = completedata1)
+#summary(sl2)
+```
+
+```{r}
+#'Gender', 'Age_c', 'Race1', 'Edu', 'HHIncomeMid', 'Work', 'BMI_c','BPSysAve','BPDiaAve',
+#'DaysPhysHlthBad', 'DaysMentHlthBad','Depressed','SleepTrouble','PhysActive','PhysActiveDays',
+#''TVHrsDay','AlcoholDay','AlcoholYear','Smoke100','Marijuana','HardDrugs
+
+
+
+# Linear regression
+mm1 = lm(formula = SleepHrsNight ~ CompHrsDay +
+            Gender+Age_c+Race1+Edu+HHIncomeMid+Work+
+            BMI_c+BPIssue+DaysPhysHlthBad+DaysMentHlthBad+Depressed+SleepTrouble+
+            PhysActive+TVHrsDay+
+            AlcoholDay+AlcoholYear+Smoke100+Marijuana+HardDrugs, 
+         weights = weights, data = completedata1_unique)
+
+
+#summary(mm1) 
+#kable(summary(mm1)$coefficients, "pipe")
+#Anova(mm1, type = "III")
+#anova(mm1)
+mm1_summary <- summary(mm1)
+# Convert summary to rounded data frame
+mm1_summary_data_frame <- data.frame(
+  Estimate = round(mm1_summary$coefficients[, "Estimate"], 3),
+  `Std. Error` = round(mm1_summary$coefficients[, "Std. Error"], 3),
+  `t value` = round(mm1_summary$coefficients[, "t value"], 3),
+  `p value` = round(mm1_summary$coefficients[, "Pr(>|t|)"], 3)
+)
+
+# Change column names to remove special characters and spaces
+names(mm1_summary_data_frame)[names(mm1_summary_data_frame) == "p value"] <- "P-value"
+
+# Convert data frame to kable
+kable(mm1_summary_data_frame)
+```
+\subsection{Model Diagnosis}
+```{r}
+fit = mm1
+```
+
+```{r message=FALSE, warning=FALSE}
+# using the partial residual plot to access the linearity of our model
+
+car::avPlots(mm1, ask = F) # Added-Variable Plots    # Partial Regression Plots
+
+#car::residualPlots(mm1,type="response") # Fitted values v.s. Residuals
+
+```
+
+```{r}
+durbinWatsonTest(mm1)
+```
+
+```{r}
+#plot(mm1)
+
+#ggplot() + geom_point(aes(y = resid(fit), x = fit$fitted.values )) +
+#labs(x = "Predicted Value", y = "Residuals", title = "Residuals v.s. Predicted Value") # Residuals
+
+ggplot() + 
+geom_point(aes(y = rstudent(fit), x = fit$fitted.values )) +
+labs(x = "Predicted Value", y = "Jacknife Residuals", 
+     title = "Jacknife Residuals v.s. Predicted Value ") +
+geom_hline(yintercept = c(-2,2)) +
+theme_bw() + 
+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) # Externally studentized residuals
+```
+
+```{r}
+hist(resid(fit),breaks = 12)
+
+#ggplot(fit, aes(sample = resid(fit))) +
+#geom_qq() + stat_qq_line() +labs(title="Q-Q plot")
+
+ggplot(fit, aes(sample = rstudent(fit))) +
+  geom_qq() +
+  stat_qq_line() +
+  labs(title="Q-Q plot") +
+  theme_bw() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+```
+
+```{r}
+fit = mm1 #for convenience
+
+
+m.dffits = dffits(fit)
+m.D = cooks.distance(fit)
+m.covratio = covratio(fit)
+
+influence = data.frame(ID = completedata1_unique$ID, Residual = resid(fit), Rstudent = rstudent(fit), HatDiagH = hat(model.matrix(fit)), CovRatio = covratio(fit), DFFITS = dffits(fit), COOKsDistance = cooks.distance(fit))
+
+olsrr::ols_plot_dffits(fit) # Threshold: 2*sqrt((p+1)/(n−p−1))
+influence[order(abs(influence$DFFITS),decreasing = T),] %>% head()
+
+olsrr::ols_plot_cooksd_bar(fit) # Threshold: 4/n
+influence[order(influence$COOKsDistance,decreasing = T),] %>% head()
+
+
+olsrr::ols_plot_resid_lev(fit)
+influence[order(influence$HatDiagH,decreasing = T),] %>% head()
+influence[order(influence$Rstudent,decreasing = T),] %>% head()
+
+
+```
+
+```{r Dfbetas for one variable, eval=FALSE, include=FALSE}
+# dfbetas for BMI_c alone, if necessary, BMI_c can be replaced by any other variable.
+n = nrow(m.dfbeta)
+np = ncol(m.dfbeta)
+threshold = 2/sqrt(n)
+dbetas = m.dfbeta[,"BMI_c"]
+df_data = data.frame(obs=seq_len(n),dbetas =dbetas)
+d = olsrr::ols_prep_dfbeta_data(df_data,threshold)
+f = olsrr::ols_prep_dfbeta_outliers(d)
+
+ggplot(d,aes(x= obs,y=dbetas,label = txt,ymin = 0, ymax=dbetas)) + geom_linerange(colour = "blue") +geom_hline(yintercept = c(0,-threshold,threshold),colour = "red") + geom_point(colour = "blue",shape = 1) +xlab("observation") + ylab("DFBETAS") +ggtitle("Influence Diagnostics for BMI_c") +
+  geom_text(hjust = -0.2, nudge_x = 0.15,size = 2, family = "serif",fontface = "italic", colour = "darkred",na.rm= T)+ annotate("text",x= Inf,y=Inf,hjust = 1,vjust = 1,family = "serif",fontface = "italic", colour = "darkred",label = paste("Threshold:",round(threshold,2)))
+```
+
+```{r eval=FALSE, include=FALSE}
+influence_less_1 = rep(NA_integer_, length(m.covratio))
+for (i in 1:length(m.covratio)){
+  if (m.covratio[i]< 1-3*p/n){
+    influence_less_1[i] = i
+  }
+}
+covtable = as.data.frame(cbind(index = 1:length(m.covratio),cov = m.covratio,txt = influence_less_1))
+covtable
+
+library(ggrepel)
+(cov2 = ggplot(covtable,aes(x=index,y=cov,label =txt))+geom_point()+geom_hline(yintercept =1+3*p/n,linetype = 'dashed',colour = 'darkred' )+ geom_hline(yintercept =1-3*p/n,linetype = 'dashed',colour = 'darkred'  ) +xlab("Index")+ylab('Covratio') +   geom_text_repel(aes(label = txt), color = 'blue',na.rm = T)) + annotate("text",x= Inf,y=Inf,hjust = 1,vjust = 1,family = "serif",fontface = "italic", colour = "darkred",label = paste("Threshold:"," 1 +- ",round(3*p/n,2)))
+```
+
+```{r}
+library("corrplot")
+corrtable = select(completedata1, c('CompHrsDay','Gender', 'Age_c', 'Race1', 'Edu', 'HHIncomeMid', 'Work','BMI_c','BPIssue','DaysPhysHlthBad', 'DaysMentHlthBad', 'Depressed','SleepTrouble','PhysActive','TVHrsDay','AlcoholDay','AlcoholYear',
+'Smoke100','Marijuana','HardDrugs'))
+corrtable$CompHrsDay = as.numeric(as.factor(corrtable$CompHrsDay))
+corrtable$Gender = ifelse(corrtable$Gender== 'male',0,1)
+corrtable$PhysActive = ifelse(corrtable$PhysActive == 'No',0,1)
+corrtable$Race1 = as.numeric(as.factor(corrtable$Race1))
+corrtable$Edu = as.numeric(as.factor(corrtable$Edu))
+corrtable$Work = as.numeric(as.factor(corrtable$Work))
+corrtable$BPIssue = as.numeric(as.factor(corrtable$BPIssue))
+corrtable$Depressed = as.numeric(as.factor(corrtable$Depressed))
+corrtable$SleepTrouble = as.numeric(as.factor(corrtable$SleepTrouble))
+corrtable$PhysActive = as.numeric(as.factor(corrtable$PhysActive))
+corrtable$TVHrsDay = as.numeric(as.factor(corrtable$TVHrsDay))
+corrtable$Smoke100 = as.numeric(as.factor(corrtable$Smoke100))
+corrtable$Marijuana = as.numeric(as.factor(corrtable$Marijuana))
+corrtable$HardDrugs = as.numeric(as.factor(corrtable$HardDrugs))
+
+mycorr = corrplot(cor(corrtable),
+                  tl.cex = 0.6,
+                  tl.col = "black",
+                  cl.cex = 0.5)
+
+cormat = cor(as.matrix(corrtable, method = "pearson"))
+p.mat = cor.mtest(as.matrix(corrtable))$p
+corrplot(cormat,
+         method = "color",
+         type = "upper",
+         number.cex = 0.4,
+         diag = FALSE,
+         addCoef.col = "black",
+         tl.col = "black",
+         tl.srt = 90,
+         p.mat = p.mat,
+         sig.level = 0.05,
+         insig = "blank",
+         cl.cex = 0.5,
+         tl.cex = 0.5) # insignificant correlation are colored as blank
+
+
+
+vif = car::vif(fit)
+print(as.data.frame(vif))
+```
+
+```{r}
+cor(as.numeric(as.factor(corrtable$Depressed)),completedata1$DaysMentHlthBad)
+```
+
